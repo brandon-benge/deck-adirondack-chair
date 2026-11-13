@@ -1,0 +1,256 @@
+name: File Template CAD CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_NO_CACHE_DIR: 1
+
+jobs:
+  # 2026-11-10 (file-template-cad#21): GitHub's hosted macOS runners are sometimes unavailable
+  # and cancel queued jobs after about 15 minutes, which blocked publishing. locked-install runs
+  # on macOS, and is then still required, only when pyproject.toml or requirements/ changed
+  # since the last commit whose checks passed (tools/dependency-change).
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      locked_install_os: ${{ steps.select.outputs.locked_install_os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find the commit to compare with
+        id: base
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PULL_BASE: ${{ github.event.pull_request.base.sha }}
+          BRANCH: ${{ github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          base=""
+          if [ "$EVENT_NAME" = pull_request ]; then
+            base="$PULL_BASE"
+          else
+            # The last commit whose checks passed on this branch, else on the default branch.
+            for branch in "$BRANCH" "$DEFAULT_BRANCH"; do
+              [ -n "$branch" ] || continue
+              base="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?branch=$branch&status=success&per_page=1" \
+                --jq '.workflow_runs[0].head_sha // empty' 2>/dev/null || true)"
+              [ -n "$base" ] && break
+            done
+          fi
+          if [ -n "$base" ]; then git fetch --quiet --depth=1 origin "$base" || true; fi
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+      - name: Choose the locked-install runners
+        id: select
+        env:
+          BASE: ${{ steps.base.outputs.sha }}
+        run: echo "locked_install_os=$(python3 tools/dependency-change "$BASE")" >> "$GITHUB_OUTPUT"
+
+  locked-install:
+    needs:
+      - changes
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(needs.changes.outputs.locked_install_os) }}
+        python-version: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pip-tools
+        run: |
+          # pip-tools' pip-compile transitively imports pip._internal internals
+          # that pip 26.2 removed (jazzband/pip-tools#2436, fixed post-7.6.0 but
+          # not yet released to PyPI). Pin pip below the break until a pip-tools
+          # release includes the fix.
+          pip install "pip<26.2"
+          pip install pip-tools
+      - name: Regenerate native dev lock
+        id: lock
+        shell: python
+        run: |
+          import os, sys, platform, subprocess
+          os_name = {"Linux": "ubuntu", "Darwin": "macos"}[platform.system()]
+          arch = platform.machine()
+          py = sys.version_info
+          lock = f"dev-{os_name}-{arch}-py{py.major}{py.minor}.lock"
+          lock_path = f"requirements/locks/{lock}"
+          os.makedirs("requirements/locks", exist_ok=True)
+          subprocess.run(
+              [
+                  "pip-compile", "--extra=dev", "--generate-hashes",
+                  "--output-file", lock_path, "pyproject.toml",
+              ],
+              check=True, capture_output=True, text=True,
+          )
+          print(f"lock_path={lock_path}", file=open(os.environ["GITHUB_OUTPUT"], "a"))
+      - name: Install from lock
+        run: |
+          pip install --require-hashes -r ${{ steps.lock.outputs.lock_path }}
+          pip check
+      - name: Record lock SHA-256
+        run: shasum -a 256 ${{ steps.lock.outputs.lock_path }}
+      - name: Upload regenerated dev lock
+        uses: actions/upload-artifact@v4
+        with:
+          name: dev-lock-${{ matrix.os }}-${{ matrix.python-version }}
+          path: ${{ steps.lock.outputs.lock_path }}
+
+  # Static analysis, the dependency boundary and the fast tests share one
+  # install of the committed Linux dev lock (locked-install above proves the
+  # lock still regenerates). The build, determinism and browser tests stay in
+  # end-to-end.yml (test-cost-reduction, 2026-10-12).
+  checks:
+    runs-on: ubuntu-24.04
+    outputs:
+      python_cad_tools_version: ${{ steps.dependency_boundary.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dev lock
+        run: |
+          pip install --require-hashes -r requirements/locks/dev-ubuntu-x86_64-py313.lock
+          pip check
+      - name: Ruff lint
+        run: ruff check config.py model.py models/ drawing_annotations.py tests/
+      - name: Ruff format
+        run: ruff format --check config.py model.py models/ drawing_annotations.py tests/
+      - name: Mypy
+        run: mypy config.py model.py models/ drawing_annotations.py tests/
+      - name: Fast tests (workflow policy, release identity, reconcile)
+        run: python -m pytest -m "not integration and not viewer and not e2e"
+      - name: Dependency boundary check
+        id: dependency_boundary
+        run: |
+          python -c "
+          import importlib.metadata, os, tomllib
+          from packaging.requirements import Requirement
+          from packaging.version import Version
+          with open('pyproject.toml', 'rb') as f:
+              deps = tomllib.load(f)['project']['dependencies']
+          expected = Requirement(next(d for d in deps if d.startswith('python-cad-tools')))
+          ver = importlib.metadata.version('python-cad-tools')
+          print(f'python-cad-tools version: {ver}')
+          assert Version(ver) in expected.specifier, f'Expected {expected}, got {ver}'
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f'version={ver}', file=output)
+          "
+          python -c "
+          import python_cad_tools
+          assert 'site-packages' in python_cad_tools.__file__, f'Not installed: {python_cad_tools.__file__}'
+          print(f'Package location: {python_cad_tools.__file__}')
+          "
+      - name: Ignored output check
+        # generated/ is disposable build output: nothing under it may be committed, or every
+        # build that replaces the directory shows up as a source change.
+        run: |
+          test -z "$(git ls-files generated)"
+
+  compatibility-report:
+    needs:
+      - locked-install
+      - checks
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          cat <<JSON > compatibility-report.json
+          {
+            "plan_contract": "repo-split-v1",
+            "design_revision": "${{ github.sha }}",
+            "python_cad_tools_version": "${{ needs.checks.outputs.python_cad_tools_version }}",
+            "workflow_run_id": "${{ github.run_id }}",
+            "status": "completed",
+            "date": "${{ github.event.repository.updated_at }}"
+          }
+          JSON
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compatibility-report
+          path: compatibility-report.json
+
+  required-gate:
+    needs:
+      - changes
+      - locked-install
+      - checks
+      - compatibility-report
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          import json, sys
+          deps = json.loads(r'''${{ toJSON(needs) }}''')
+          results = {name: info.get("result", "skipped") for name, info in deps.items()}
+          for name, result in results.items():
+              print(f"{name}: {result}")
+          cancelled = [name for name, result in results.items() if result == "cancelled"]
+          failed = [name for name, result in results.items() if result == "failure"]
+          if failed:
+              print(f"FAILED: {', '.join(failed)} did not pass")
+              sys.exit(1)
+          if cancelled:
+              # A job GitHub cancelled never finished: usually no runner was free (its macOS runners
+              # cancel queued jobs after about 15 minutes), or a newer push replaced this run.
+              print(
+                  f"NOT RUN: GitHub cancelled {', '.join(cancelled)} before it finished, usually because no "
+                  "runner was free. Nothing in the change failed; run the checks again to publish it."
+              )
+              sys.exit(1)
+          if any(result != "success" for result in results.values()):
+              print("FAILED: a required job did not complete successfully")
+              sys.exit(1)
+          print("All dependencies passed")
+        shell: python
+
+  # 2026-11-03 (benge-property-cad#26): a MakeItOurs ticket starts CI with the job's token, and a
+  # run started that way fires no workflow_run event, so neither the site deploy nor the outcome
+  # reply would follow. On such a dispatched run on main, CI starts the deploy itself and reports
+  # its result to makeitours-outcome.yml.
+  ticket-downstream:
+    needs:
+      - required-gate
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ github.sha }}
+      RESULT: ${{ needs.required-gate.result }}
+    steps:
+      - name: Start the site deploy
+        if: needs.required-gate.result == 'success'
+        run: gh workflow run pages.yml --repo "$GITHUB_REPOSITORY" --ref main -f head_sha="$HEAD_SHA"
+      # 2026-11-04 (data-plane#249): the release, too, only after CI passed, so a failing change
+      # is never tagged. A runner that sees this step no longer dispatches the release itself.
+      - name: Start the release
+        if: needs.required-gate.result == 'success'
+        run: gh workflow run release-template.yml --repo "$GITHUB_REPOSITORY" --ref main -f head_sha="$HEAD_SHA"
+      - name: Report to the MakeItOurs outcome workflow
+        run: |
+          # Only a project that has the outcome workflow gets a report.
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/makeitours-outcome.yml?ref=$HEAD_SHA" --silent 2>/dev/null || exit 0
+          case "$RESULT" in success) conclusion=success ;; cancelled) conclusion=cancelled ;; skipped) conclusion=skipped ;; *) conclusion=failure ;; esac
+          gh workflow run makeitours-outcome.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f workflow=ci.yml -f head_sha="$HEAD_SHA" -f conclusion="$conclusion" -f run_id="$GITHUB_RUN_ID"

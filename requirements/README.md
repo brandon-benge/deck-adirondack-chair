@@ -1,0 +1,53 @@
+# requirements/
+
+Infrastructure (see `tests/README.md` for what that means). Split into two
+generations that have diverged:
+
+- **`locks/dev-{macos-arm64,ubuntu-x86_64}-py{312,313}.lock`** — the active
+  ones. `.github/workflows/ci.yml`'s `locked-install` job regenerates each
+  with `pip-compile --extra=dev --generate-hashes` and installs from it with
+  `pip install --require-hashes`, so these are what CI (and a reproducible
+  dev install) actually depend on. Only ever regenerated for the
+  platform/version a workflow run actually built and verified against — check
+  individual commit messages; they don't all move together.
+- **The eight loose `dev-*.lock` / `runtime-*.lock` files directly under
+  `requirements/`** — from this template's initial commit, never regenerated
+  since (nothing in CI or any script references them), and now stale relative
+  to `locks/` (e.g. an older pinned `python-cad-tools`). Read `locks/` for the
+  real, current pins.
+
+**`locks/dev-ubuntu-x86_64-py312.lock` is also the MakeItOurs release lock.**
+The hosted pipeline's Build Agent (makeitours-data-plane D105) runs its
+`reproducibility` check against exactly this file and fails a release unless
+every pin equals the version installed in the released
+`makeitours-agentic` sandbox image. The baseline came from the `v0.1.22` image's x86_64 toolchain on
+2026-09-26. On 2026-10-07, the lock was regenerated in Linux/amd64 Python 3.12
+with `--upgrade-package=python-cad-tools==0.1.17` for the MakeItOurs viewer
+branding update; all other package pins were preserved. On 2026-10-08 all four
+locks were regenerated the same way with `--upgrade-package=python-cad-tools==0.1.18`
+(curved solids pass the IFC bounds check); all other pins were preserved. On 2026-10-19
+all four moved to `python-cad-tools==0.1.19` (one-line docstrings for every public helper; same
+dependencies) by replacing only its pin and wheel/sdist hashes from PyPI. On 2026-10-21 all four moved to
+`python-cad-tools==0.1.20` (shaded renders and `render-ring`; same dependencies) the same way. On 2026-10-27 all four moved to
+`python-cad-tools==0.1.21` (validation rejects unapplied placements and stacked solids; same dependencies)
+the same way. On 2026-11-02 all four moved to `python-cad-tools==0.1.22` (the canvas-first viewer; same
+dependencies) the same way. On 2026-11-03 all four moved to `python-cad-tools==0.1.23` (the camera captures only
+what is visible on Hosted and opens prebuilt documents on BYOI; same dependencies) the same way. On 2026-11-03 all four
+moved to `python-cad-tools==0.1.24` (plainer capture-sheet wording; same dependencies) the same way. On 2026-11-04 all four
+moved to `python-cad-tools==0.1.25` (documents-list file names as written; same dependencies) the same way. On 2026-11-04 all four
+moved to `python-cad-tools==0.1.26` (drawing edges drawn solid, not dashed; same dependencies) the same way. On 2026-11-05 all four
+moved to `python-cad-tools==0.1.27` (parts coloured only by their material show that colour; same dependencies) the same way. On 2026-11-11 all four
+moved to `python-cad-tools==0.1.30` (viewer realistic-image button with a scene picker, plus a
+materials inventory and layered wall builder; same dependencies) the same way. The matching sandbox
+image must consume this released lock before hosted builds use it. To regenerate:
+export the image's versions (`docker run --platform linux/amd64 <image> pip
+list --format=freeze`, minus `pip`, `setuptools`, `wheel` and
+`makeitours-agentic`), write them into this file as the starting pins, then in
+a `python:3.12-slim-bookworm` linux/amd64 container with `pip<26.2` and
+pip-tools run
+`CUSTOM_COMPILE_COMMAND="pip-compile --extra=dev --generate-hashes --output-file=requirements/locks/dev-ubuntu-x86_64-py312.lock pyproject.toml" pip-compile --extra=dev --generate-hashes --output-file=requirements/locks/dev-ubuntu-x86_64-py312.lock pyproject.toml`
+(pip-compile keeps existing pins that satisfy `pyproject.toml`). CI's own
+regeneration also keeps these pins, since it starts from the committed file.
+
+If this directory — or the loose top-level files, or `locks/` — is removed or
+reorganized, this description no longer applies to whatever replaced it.

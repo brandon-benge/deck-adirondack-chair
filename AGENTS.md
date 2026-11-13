@@ -1,0 +1,317 @@
+# File Template CAD — Agent Governance
+
+## Repository boundary
+
+This repository is `file-template-cad`. It owns the template-specific design,
+including:
+
+- design parameters and dimensions
+- geometry composition
+- materials and annotations
+- project tests
+- dependency pins and locks
+- CI and GitHub Pages deployment
+- repository documentation and agent governance
+
+The repository consumes `python-cad-tools` as an installed PyPI package.
+
+Never copy, vendor, unpack, patch, or modify `python-cad-tools` source or
+`site-packages`. Never install it from a local checkout or as an editable
+package. When the public package lacks required behavior, report an upstream
+requirement instead of creating a local tooling fork or workaround.
+
+## Authoritative design source
+
+The authoritative editable design files are:
+
+- `config.py`
+- `model.py`
+- `drawing_annotations.py`
+
+Generated files under `generated/` are disposable evidence and must never be
+edited directly.
+
+Keep geometry parametric. Use only documented public `python_cad_tools` APIs.
+Preserve stable semantic IDs, including existing `complex.*` IDs, unless an
+intentional migration is part of the request. Create or update geometry and its
+metadata together.
+
+## Authoring tiers
+
+`python-cad-tools` defines a two-tier authoring contract (see its
+`docs/two-tier-contract.md`):
+
+- **Tier 1 — verified authoring.** Authoring through `DesignModel` /
+  `DesignElement` using documented fields — any concrete `IfcElement` subtype
+  in `IfcMapping`, `openings` for voids, `properties` for user properties,
+  `storey` for multi-storey, the `Dimension` drawing primitive, and
+  `python_cad_tools.recipes` (`ExtrudedProfile`, `DifferenceRecipe`) for
+  opt-in parametric BREP IFC output — produces deterministic, manifest-hashed,
+  round-trip-verified, multi-format-consistent artifacts through
+  `build_project`.
+- **Tier 2 — supported, unverified direct library access.** Direct imports of
+  a library named in `python-cad-tools`'s `docs/toolchain.md` (for example
+  `ifcopenshell`, `trimesh`) for reading, querying, validating, or
+  post-processing. The framework guarantees the library installs and
+  interoperates; it does not guarantee determinism, manifest coverage, or
+  multi-format consistency for artifacts authored this way.
+
+When the neutral model lacks a feature a design needs, file a SpecRepo request
+against `python-cad-tools` rather than bypassing to Tier 2 for an artifact that
+needs Tier 1 verification.
+
+## Agents and responsibilities
+
+| Agent | Responsibility | May modify |
+|---|---|---|
+| `file-design-maintainer` | Implement template-design changes | `config.py`, `model.py`, `models/`, `drawing_annotations.py` |
+| `file-artifact-reviewer` | Review generated outputs and report design-quality findings | Nothing |
+| `cad-compatibility-verifier` | Verify the installed PyPI package, environment, commands, and compatibility | Nothing |
+
+## Collaboration
+
+The working agents may call one another when the receiving agent owns the
+next required responsibility:
+
+- `file-design-maintainer` may call `file-artifact-reviewer` to evaluate
+  regenerated outputs.
+- `file-design-maintainer` may call `cad-compatibility-verifier` to validate the
+  installed package, environment, or declared project checks.
+- `file-artifact-reviewer` may call `file-design-maintainer` when its evidence
+  requires source changes.
+- `file-artifact-reviewer` may call `cad-compatibility-verifier` when an
+  artifact problem appears environmental or toolchain-related.
+- `cad-compatibility-verifier` may call `file-design-maintainer` when a verified
+  blocker belongs to the parent project's editable design source.
+- `cad-compatibility-verifier` may call `file-artifact-reviewer` when generated
+  output requires specialist review.
+
+Delegation must be bounded:
+
+1. Make at most one handoff for the same distinct blocker.
+2. Include the observed evidence, affected artifacts or files, expected result,
+   and acceptance evidence.
+3. Do not invoke the agent that called you again unless new source changes,
+   regenerated outputs, or new verification evidence justify one final review.
+4. Return unresolved blockers to the caller rather than repeating a delegation
+   cycle.
+5. No agent commits or pushes. The person saves from the MakeItOurs app,
+   whose Save runs `makeitours-agentic-commit` directly (or with Git).
+
+makeitours-agentic enforces the bounded delegation and the writable-file
+allowlist mechanically. This file describes expected behavior but is not an
+authorization boundary.
+
+## Question policy
+
+When a request is ambiguous, prefer the best-supported assumption from
+available evidence (design source, generated artifacts, and this file), state
+that assumption, and proceed. Ask the person one clarifying question only when
+the request genuinely cannot be carried out without the answer. In the
+MakeItOurs app the question appears in the conversation; in a GitHub ticket it
+is posted on the issue, and a `/mio <answer>` reply starts the change again with
+the answer.
+
+## File Design Maintainer
+
+Tier 1 is the design maintainer's primary boundary: author through
+`DesignModel` / `DesignElement` using documented fields. Tier 2 (direct
+library imports) is available for reading, querying, validating, and
+post-processing. See "Authoring tiers" above.
+
+The design maintainer:
+
+- edits only the authoritative design source
+- uses only public installed `python_cad_tools` APIs
+- does not inspect or patch package source or `site-packages`
+- preserves stable semantic IDs
+- runs the applicable build, validation, lint, type-check, and test commands
+  itself once, after finishing every edit the request requires — not after
+  each individual edit (see "Verification expectations" below)
+- delegates artifact review to `file-artifact-reviewer` when needed
+- never invokes Git directly and never commits or pushes
+
+When required functionality is unavailable from the installed public package,
+return an upstream `python-cad-tools` requirement with evidence.
+
+## File Artifact Reviewer
+
+The artifact reviewer is read-only and may inspect only content under
+`generated/`, including artifacts, manifests, drawings, reports, logs, and site
+content. In scope: Tier 1 artifacts produced by `build_project`, including IFC
+user property sets, quantity sets, storey assignment, openings, and drawing
+dimensions. Out of scope: artifacts produced by Tier 2 direct library use
+outside `build_project`.
+
+It must not:
+
+- read Python source, tests, dependency files, agent files, or governance files
+- edit files
+- run shell commands
+- infer implementation details that are not evidenced by generated output
+- commit or push
+
+Classify findings as blocker, important, or advisory. For each finding, report
+the affected artifact and stable IDs, the observed issue, expected result,
+recommended responsibility owner, and acceptance evidence.
+
+## CAD Compatibility Verifier
+
+The compatibility verifier is read-only. It operates against the current
+project and installed environment. Tier 1 verification covers library
+install, import, and interop; the project-declared `validate`/`build`/`verify`
+checks; manifest hashes, round-trip IDs, and schema validation; and
+multi-format consistency. Tier 2 verification covers library install and
+import only — it does not assert artifact determinism or manifest coverage.
+
+It must:
+
+- use the pinned `python-cad-tools` package from PyPI
+- use the dependency lock matching the active platform and Python version
+- inspect the current environment before changing it
+- create a temporary Python environment only when isolation is required by the
+  declared verification workflow
+- verify the installed distribution version and resolved module path
+- run the project-declared static, test, build, validation, verification, site,
+  HTTP, and browser checks as applicable
+- produce a machine-readable compatibility report
+
+It must not:
+
+- clone, archive, copy, vendor, unpack, or duplicate either repository
+- install `python-cad-tools` from a source checkout or in editable mode
+- edit source, tests, configuration, locks, workflows, generated output, agents,
+  or governance
+- fix failures during the verification run
+- invoke Git directly, commit, or push
+
+It may read public remote package documentation or repository content only when
+needed to diagnose a package-level blocker. If access, documentation, parent
+repository state, credentials, or source changes are required, it must report
+the exact blocker, evidence, and user input or access needed.
+
+## Verification expectations
+
+GitHub-triggered requests (an issue, or a `/mio` or `/makeitours` comment,
+run by makeitours-agentic in `.github/workflows/makeitours.yml`) are distinct
+from local Mac AI requests. They are serialized by the repository workflow. Accepted runs are persisted under
+`.makeitours/audit/v1/`; failed or rejected runs never commit or push and retain
+bounded evidence only in GitHub Actions logs and temporary artifacts. Agents
+must not edit, delete, or overwrite an existing audit run directory and must
+not commit or push during that workflow; the repository audit runner
+exclusively owns validation and accepted Git persistence.
+
+Use the smallest verification tier that provides evidence proportional to the
+change. Do not run integration, viewer, or E2E tests by default for a localized
+design-source change.
+
+**Verify once, after all edits, in every session type.** Local Mac AI
+sessions, GitHub-triggered requests, and CI (`ci.yml`) all have the
+project's `ruff`/`mypy`/`pytest`/`python-cad` available. Run the applicable
+tier's checks once, after finishing every edit the request requires — not
+after each individual edit, and not repeatedly while iterating. `ruff` and
+`mypy` (and the fast policy tests) also run in `ci.yml` on every push; the
+build tests and `python-cad` also run in the E2E, pages, and rebuild workflows; MakeItOurs's own build step also runs
+`python-cad validate`/`build` immediately after a local session finishes.
+Your one end-of-session pass exists to catch and fix problems before those
+run, not to replace or duplicate them.
+
+### Focused tier
+
+Use for localized changes to parameters, geometry, annotations, metadata, or
+focused tests. Design-input validation tests (`test_config_contract.py`,
+`test_model_geometry.py`, `test_drawing_annotations.py`) have been removed —
+agents must not run or re-create them. Agents must not update test assertions
+about model-specific content (element IDs, IFC mappings, annotation content,
+dimensions, positions, materials) in any test file — these are manual-reference
+snapshots that only a human updates. For a pure design-value edit (no change
+to `tests/`), run only static analysis and project validation:
+
+```text
+ruff check config.py model.py models/ drawing_annotations.py tests/
+ruff format --check config.py model.py models/ drawing_annotations.py tests/
+mypy config.py model.py models/ drawing_annotations.py tests/
+python-cad validate --project-root .
+```
+
+When a change touches build, viewer, or workflow-policy tests, additionally run
+the affected test files or node IDs:
+
+```text
+python -m pytest -q <test file or node ID>
+```
+
+Select affected tests narrowly. Do not substitute the complete test suite when
+a test file or node ID directly covers the change.
+
+### Export-sensitive tier
+
+Use when a change affects solid construction, semantic identity, materials,
+relationships, quantities, drawings, or exported formats. Run the focused tier
+first, then the applicable integration and artifact checks:
+
+```text
+python -m pytest -q -m integration                                                   # ~3 min
+python -m pytest -q -m integration -n auto --dist loadscope                         # ~1.5 min with xdist
+python-cad build --project-root .
+python-cad verify --project-root .
+```
+
+The build integration tests (`-m integration`) have been split into three
+parallel-friendly files: `test_build_artifacts.py` (one full build, ~85 s),
+`test_build_cli.py` (step-only builds, ~50 s), and
+`test_build_determinism.py` (two step+ifc builds, ~104 s). Without xdist they
+run serially (~3 min). With `pytest-xdist -n auto --dist loadscope` they run
+on separate workers in parallel (~1.5 min wall-clock).
+
+Run only the applicable commands when the current environment or installed
+toolchain cannot support an output. Report every skipped or failed command and
+its reason.
+
+### Full and E2E tier
+
+Run the complete suite, site preparation, HTTP, viewer, or browser checks only
+for broad cross-project changes, UI or site changes, minor or major dependency
+upgrades, explicit full/E2E requests, or failures that require those checks for
+diagnosis:
+
+```text
+python -m pytest -q
+python -m pytest -q -m "e2e or viewer"
+python-cad prepare-site --project-root . --destination site --base-path /file-template-cad/
+```
+
+The `integration` marker identifies artifact/export integration tests. The
+`viewer` marker identifies viewer and local HTTP behavior. The `e2e` marker
+identifies end-to-end tests that may require services, sockets, or browsers.
+
+Classify `python-cad-tools` upgrades with semantic versioning. A change only to
+the patch component (for example, `0.1.4` to `0.1.5`) uses basic tests and must
+not run E2E tests. A minor or major change, or a user request for a full
+upgrade, requires E2E testing. E2E testing is also available on demand through
+the manually dispatched `File Template CAD End-to-End` GitHub Actions workflow.
+
+There is no dependency-version selection. `pyproject.toml`, the
+`requirements/locks/*.lock` files, `tools/`, CI config, and every other file
+outside the four customer-owned CAD authoring paths (`config.py`, `model.py`,
+`drawing_annotations.py`, `models/**/*.py`) are infrastructure: reconciled
+automatically against `file-template-cad`'s current committed content on
+every Git-triggered run (the `makeitours.yml` runner invokes
+`tools/reconcile-infrastructure` before the agent runs), and against the
+MakeItOurs app's vendored snapshot on every Mac build. No agent edits
+`pyproject.toml` or dependency locks; advancing `python-cad-tools` means
+updating `file-template-cad` itself.
+
+Do not invent unsupported commands or silently bypass failed checks. Report
+environment-specific skipped checks and the reason.
+
+## Save and persistence
+
+No agent commits, pushes, or loads a commit tool, in any session type. GitHub
+tickets are committed by the ticket runner (`makeitours-agentic-git-run`) after
+its own validation. Local work is saved by the person: from the MakeItOurs
+app, whose Save runs `makeitours-agentic-commit` directly (it stages, writes the
+commit message with the selected AI, commits with a sign-off, and pushes through
+the app), or with plain Git.
+
+The user decides when work is ready to be committed. Agents must not assume it.

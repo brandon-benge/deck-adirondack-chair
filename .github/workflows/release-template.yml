@@ -1,0 +1,182 @@
+name: Package and release File Template CAD
+
+# Releases a commit on main only after CI passed on it (test-cost-reduction,
+# 2026-10-12): before, every push to any branch released, even with CI red,
+# and pushes that weren't meant to release needed "[skip ci]". A "[skip ci]"
+# push now skips CI and so also the release. A manual dispatch (the hosted
+# runner dispatches this workflow after its own push) releases the
+# dispatched ref as before.
+on:
+  workflow_run:
+    workflows: ["File Template CAD CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      head_sha:
+        description: The commit on main to release (CI passes it after a MakeItOurs ticket); empty releases the dispatched ref
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    steps:
+      # 2026-11-13: MakeItOurs creates every new BYOI project and every Hosted export to
+      # GitHub from this repository with GitHub's /generate API, which works only while the
+      # repository is marked "Template repository". The flag was found off that day and every
+      # create failed, so the template's own release fails loudly instead of shipping while
+      # nobody can create a project. Only in the template repository itself: projects carry
+      # this workflow too and are not required to be templates.
+      - name: Check this repository is still a GitHub template
+        if: github.repository == 'brandon-benge/file-template-cad'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          is_template=$(curl --silent --show-error --fail --max-time 20 \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY" | jq -r '.is_template')
+          if [ "$is_template" != "true" ]; then
+            echo "::error title=Not a template repository::$GITHUB_REPOSITORY is not marked as a template repository, so MakeItOurs can't create projects from it. Turn on Settings > General > Template repository, then re-run this release."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        with:
+          # The commit CI passed on (a workflow_run's own SHA is main's latest).
+          ref: ${{ github.event.workflow_run.head_sha || inputs.head_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          base_version="$(python3 - <<'PY'
+          import tomllib
+          with open('pyproject.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          PY
+          )"
+          release_version="${base_version}.${GITHUB_RUN_NUMBER}"
+          echo "base=${base_version}" >> "$GITHUB_OUTPUT"
+          echo "version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${release_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Create deterministic template archive
+        # The archive also carries .makeitours/template-release.json (its own tag), and the
+        # release publishes template-policy.json beside it (2026-10-09 approval,
+        # project-upgrade-button). Repacked with sorted names, the commit's time and
+        # numeric owners, so the same commit and tag always give the same bytes.
+        run: |
+          rm -rf staging && mkdir staging
+          git archive --format=tar --prefix=file-template-cad/ HEAD | tar -x -C staging
+          python3 tools/release-identity staging/file-template-cad \
+            "${{ steps.version.outputs.tag }}" "$(git rev-parse HEAD)" template-policy.json
+          tar --sort=name --mtime="@$(git log -1 --format=%ct)" --owner=0 --group=0 --numeric-owner \
+            --pax-option=exthdr.name=%d/PaxHeaders/%f,delete=atime,delete=ctime \
+            -C staging -cf - file-template-cad | gzip -n > file-template-cad.tar.gz
+          sha256sum file-template-cad.tar.gz > file-template-cad.tar.gz.sha256
+          sha256sum template-policy.json > template-policy.json.sha256
+
+      - name: Upload package for this workflow run
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-template-cad-${{ steps.version.outputs.version }}
+          path: |
+            file-template-cad.tar.gz
+            file-template-cad.tar.gz.sha256
+            template-policy.json
+            template-policy.json.sha256
+          if-no-files-found: error
+
+      - name: Create and push version tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git rev-parse --verify "refs/tags/${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
+            git push origin "${{ steps.version.outputs.tag }}"
+          fi
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            file-template-cad.tar.gz \
+            file-template-cad.tar.gz.sha256 \
+            template-policy.json \
+            template-policy.json.sha256 \
+            --repo "${GITHUB_REPOSITORY}" \
+            --verify-tag \
+            --generate-notes
+
+      # 2026-11-04 (cad-tools-release-app-safety): every release asks makeitours-agentic to
+      # follow it (Hosted must be on the latest template, hosted_template_parity.py); one
+      # that changes python-cad-tools also asks makeitours-app (the Mac app bundles only the
+      # lock). Each opens or updates its pin-bump pull request. Only the template
+      # repository sends it; projects carry this workflow as infrastructure.
+      - name: Ask the pinning repositories to follow this release
+        if: github.repository == 'brandon-benge/file-template-cad'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FOLLOW_TOKEN: ${{ secrets.MAKEITOURS_FOLLOW_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          current="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["python_cad_tools"])' template-policy.json)"
+          previous_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 20 --json tagName --jq '.[].tagName' \
+            | grep -vxF "$TAG" | sort -V | tail -n 1)"
+          previous=""
+          if [ -n "$previous_tag" ]; then
+            gh release download "$previous_tag" --repo "$GITHUB_REPOSITORY" --pattern template-policy.json --output previous-policy.json
+            previous="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["python_cad_tools"])' previous-policy.json)"
+          fi
+          repositories="makeitours-agentic"
+          if [ "$current" = "$previous" ]; then
+            echo "python-cad-tools is still $current (as in $previous_tag); the Mac app need not follow."
+          else
+            repositories="makeitours-app makeitours-agentic"
+          fi
+          if [ -z "$FOLLOW_TOKEN" ]; then
+            echo "::warning::MAKEITOURS_FOLLOW_TOKEN is not set, so $repositories were not asked to follow $TAG."
+            exit 0
+          fi
+          for repository in $repositories; do
+            GH_TOKEN="$FOLLOW_TOKEN" gh api "repos/brandon-benge/$repository/dispatches" \
+              -f event_type=cad-template-release -f "client_payload[tag]=$TAG" -f "client_payload[python_cad_tools]=$current"
+            echo "Asked $repository to follow $TAG (python-cad-tools $previous -> $current)."
+          done
+
+  # 2026-11-03: a release a MakeItOurs ticket dispatched reports its result to
+  # makeitours-outcome.yml (a dispatched run fires no workflow_run event).
+  ticket-report:
+    needs:
+      - package
+    if: always() && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HEAD_SHA: ${{ inputs.head_sha || github.sha }}
+      RESULT: ${{ needs.package.result }}
+    steps:
+      - name: Report to the MakeItOurs outcome workflow
+        run: |
+          # Only a project that has the outcome workflow gets a report.
+          gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows/makeitours-outcome.yml?ref=$HEAD_SHA" --silent 2>/dev/null || exit 0
+          case "$RESULT" in success) conclusion=success ;; cancelled) conclusion=cancelled ;; skipped) conclusion=skipped ;; *) conclusion=failure ;; esac
+          gh workflow run makeitours-outcome.yml --repo "$GITHUB_REPOSITORY" --ref main \
+            -f workflow=release-template.yml -f head_sha="$HEAD_SHA" -f conclusion="$conclusion" -f run_id="$GITHUB_RUN_ID"
