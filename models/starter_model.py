@@ -1,4 +1,4 @@
-"""Cedar Adirondack armchair geometry.
+"""White-painted cedar Adirondack armchair geometry.
 
 ``python-cad`` calls :func:`build_model` with a :class:`BuildContext`; that
 entry point returns the project's one ``DesignModel``.  This module builds the
@@ -11,8 +11,8 @@ Adirondack armchair from the typed parameters in ``config.py``:
 * gusset brackets under the arms at the front posts,
 * a broad front apron spanning between the front posts,
 * two rear legs with splayed-back feet and a low rear brace,
-* a matching low cedar footrest (slatted top on four splayed legs) set out
-  in front of the chair.
+* a matching low footrest (slatted top on four splayed legs) set out
+  in front of the chair, painted in the same white finish.
 
 Every part is a single connected solid placed in world coordinates so that
 ``python-cad validate`` accepts the model and keeps STEP solids in one-to-one
@@ -426,7 +426,7 @@ def _foot_legs() -> list[DesignElement]:
 
 
 def build_model(context: BuildContext) -> DesignModel:
-    """Compose the single cedar Adirondack armchair ``DesignModel`` from ``config.py``."""
+    """Compose the single white-painted cedar Adirondack armchair ``DesignModel``."""
 
     del context
     elements: list[DesignElement] = []
@@ -441,7 +441,8 @@ def build_model(context: BuildContext) -> DesignModel:
     elements.extend(_rear_legs())
     elements.append(_lower_brace())
 
-    # Matching low cedar footrest, appended after the chair parts.
+    # Matching low footrest, appended after the chair parts and painted the
+    # same white finish as the chair.
     elements.extend(_foot_slats())
     elements.extend(_foot_legs())
 
@@ -451,7 +452,7 @@ def build_model(context: BuildContext) -> DesignModel:
         artifact_stem="deck-adirondack-chair",
         elements=elements,
         metadata={
-            "design": "cedar Adirondack armchair",
-            "authoring_note": "Assembled from per-part cedar solids placed in world coordinates.",
+            "design": "white-painted cedar Adirondack armchair",
+            "authoring_note": "Painted cedar solids assembled in world coordinates.",
         },
     )

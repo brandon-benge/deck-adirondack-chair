@@ -1,4 +1,4 @@
-"""Central, typed design parameters for the cedar Adirondack armchair.
+"""Central, typed design parameters for the white-painted cedar Adirondack armchair.
 
 An LLM or human author should put user-editable dimensions, material choices,
 colors, clearances, and layout values in this module.  Geometry belongs in
@@ -163,11 +163,12 @@ FOOT_LEG_Y_REAR = FOOTREST_CENTER_Y - _foot_total_depth / 2 + FOOT_LEG_INSET_Y
 FOOT_LEG_Y_FRONT = FOOTREST_CENTER_Y + _foot_total_depth / 2 - FOOT_LEG_INSET_Y
 
 
-# ── Cedar material ───────────────────────────────────────────────────────────
+# ── White painted cedar material ─────────────────────────────────────────────
 
-# Unified finish for every chair part: dark walnut stain over cedar.
-MATERIAL_ID = "deck.adirondack.chair.material.cedar"
-MATERIAL_NAME = "Dark Walnut Stained Cedar"
-MATERIAL_CATEGORY = "cedar"
-MATERIAL_COLOR = (0.20, 0.13, 0.08)  # dark walnut brown
+# Unified finish for every chair part: the cedar painted a clean off-white.
+# Paint only changes the appearance, so the cedar density is unchanged.
+MATERIAL_ID = "deck.adirondack.chair.material.white_painted_cedar"
+MATERIAL_NAME = "White Painted Cedar"
+MATERIAL_CATEGORY = "painted cedar"
+MATERIAL_COLOR = (0.95, 0.95, 0.93)  # off-white paint
 MATERIAL_DENSITY_KG_M3 = 380.0
