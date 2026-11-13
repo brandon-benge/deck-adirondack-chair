@@ -25,7 +25,7 @@ from python_cad_tools.drawings import (
 )
 from python_cad_tools.units import format_feet_inches, to_mm
 
-PROVIDER_ID = "file.template.annotations"
+PROVIDER_ID = "deck.adirondack.chair.annotations"
 
 
 def build_annotations(context: DrawingContext) -> DrawingAnnotationSet:
