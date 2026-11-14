@@ -172,3 +172,15 @@ MATERIAL_NAME = "White Painted Cedar"
 MATERIAL_CATEGORY = "painted cedar"
 MATERIAL_COLOR = (0.95, 0.95, 0.93)  # off-white paint
 MATERIAL_DENSITY_KG_M3 = 380.0
+
+
+# ── Forest green painted finish (armrests only) ──────────────────────────────
+
+# The two armrest planks are repainted forest green; every other part keeps the
+# off-white finish above.  As with the white finish, paint only changes the
+# appearance, so the cedar density is unchanged.
+ARM_MATERIAL_ID = "deck.adirondack.chair.material.forest_green_painted_cedar"
+ARM_MATERIAL_NAME = "Forest Green Painted Cedar"
+ARM_MATERIAL_CATEGORY = "painted cedar"
+ARM_MATERIAL_COLOR = (0.133, 0.545, 0.133)  # forest green paint (#228B22)
+ARM_MATERIAL_DENSITY_KG_M3 = 380.0

@@ -1,4 +1,4 @@
-"""White-painted cedar Adirondack armchair geometry.
+"""White-painted cedar Adirondack armchair geometry, forest green armrests.
 
 ``python-cad`` calls :func:`build_model` with a :class:`BuildContext`; that
 entry point returns the project's one ``DesignModel``.  This module builds the
@@ -7,7 +7,8 @@ Adirondack armchair from the typed parameters in ``config.py``:
 * a rearward-leaning backrest of five broad horizontal boards on two support
   rails,
 * a shallow, rearward-sloping seat of five transverse slats on two side rails,
-* two wide flat armrest planks resting on two front posts,
+* two wide flat armrest planks resting on two front posts, repainted forest
+  green (the only parts that are not white),
 * gusset brackets under the arms at the front posts,
 * a broad front apron spanning between the front posts,
 * two rear legs with splayed-back feet and a low rear brace,
@@ -53,6 +54,16 @@ _MATERIAL = MaterialSpec(
     category=cfg.MATERIAL_CATEGORY,
     color_rgb=cfg.MATERIAL_COLOR,
     density_kg_m3=cfg.MATERIAL_DENSITY_KG_M3,
+)
+
+# The armrest planks alone carry the forest green repaint; every other part
+# keeps the white finish above.
+_ARMREST_MATERIAL = MaterialSpec(
+    id=cfg.ARM_MATERIAL_ID,
+    name=cfg.ARM_MATERIAL_NAME,
+    category=cfg.ARM_MATERIAL_CATEGORY,
+    color_rgb=cfg.ARM_MATERIAL_COLOR,
+    density_kg_m3=cfg.ARM_MATERIAL_DENSITY_KG_M3,
 )
 
 _IFC = IfcMapping("IfcBuildingElementProxy", "ELEMENT")
@@ -102,8 +113,14 @@ def _element(
     length_mm: float,
     width_mm: float,
     height_mm: float,
+    material: MaterialSpec | None = None,
 ) -> DesignElement:
-    """Package one physical solid into a DesignElement with full metadata."""
+    """Package one physical solid into a DesignElement with full metadata.
+
+    ``material`` defaults to the project's white painted cedar finish; only the
+    armrest planks override it with the forest green repaint.
+    """
+    finish = _MATERIAL if material is None else material
     return DesignElement(
         id=f"{_ID_PREFIX}.{element_id}",
         name=name,
@@ -111,7 +128,8 @@ def _element(
         geometry=geometry,
         geometry_kind="solid",
         dimensions=Dimensions(length_mm=length_mm, width_mm=width_mm, height_mm=height_mm),
-        material=_MATERIAL,
+        material=finish,
+        color_rgb=finish.color_rgb,
         ifc_mapping=_IFC,
     )
 
@@ -217,7 +235,11 @@ def _side_seat_rails() -> list[DesignElement]:
 
 
 def _armrests() -> list[DesignElement]:
-    """Two long broad flat armrest planks projecting beyond the front posts."""
+    """Two long broad flat armrest planks projecting beyond the front posts.
+
+    Both planks are painted forest green; every other part keeps the white
+    finish, so only these two elements pass an overriding ``material``.
+    """
     arm_z = cfg.ARM_HEIGHT - cfg.ARM_THICKNESS / 2
     results = []
     for side, name in ((-1, "left"), (1, "right")):
@@ -232,6 +254,7 @@ def _armrests() -> list[DesignElement]:
                 cfg.ARM_WIDTH,
                 cfg.ARM_LENGTH,
                 cfg.ARM_THICKNESS,
+                material=_ARMREST_MATERIAL,
             )
         )
     return results
@@ -426,7 +449,7 @@ def _foot_legs() -> list[DesignElement]:
 
 
 def build_model(context: BuildContext) -> DesignModel:
-    """Compose the single white-painted cedar Adirondack armchair ``DesignModel``."""
+    """Compose the single Adirondack armchair ``DesignModel`` (green armrests)."""
 
     del context
     elements: list[DesignElement] = []
@@ -452,7 +475,7 @@ def build_model(context: BuildContext) -> DesignModel:
         artifact_stem="deck-adirondack-chair",
         elements=elements,
         metadata={
-            "design": "white-painted cedar Adirondack armchair",
+            "design": "white-painted cedar Adirondack armchair with forest green armrests",
             "authoring_note": "Painted cedar solids assembled in world coordinates.",
         },
     )
