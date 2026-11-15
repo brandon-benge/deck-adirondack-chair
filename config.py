@@ -82,7 +82,7 @@ SEAT_SIDE_RAIL_Z = to_mm(12.5 * INCH)  # Z centre of each side rail
 
 # ── Armrests (wide flat planks) ──────────────────────────────────────────────
 
-ARM_WIDTH = to_mm(4.5 * INCH)  # X width of each armrest plank
+ARM_WIDTH = to_mm(3.5 * INCH)  # X width of each armrest plank
 ARM_LENGTH = to_mm(18 * INCH)  # Y length of each armrest plank
 ARM_THICKNESS = to_mm(1.5 * INCH)  # Z thickness of each armrest plank
 ARM_HEIGHT = to_mm(24.5 * INCH)  # Z of the armrest top above the ground
