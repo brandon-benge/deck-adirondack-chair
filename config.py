@@ -66,9 +66,7 @@ BACK_RAIL_TOP_Y = to_mm(23.5 * INCH)  # Y of the lean line top, just behind the 
 
 SEAT_SLAT_COUNT = 5
 SEAT_WIDTH = to_mm(26 * INCH)  # X span of each transverse seat slat
-# Y depth of each seat slat.  With the count and gap below unchanged, five
-# slats plus four 0.5 in gaps give a 23 in deep seat surface (originally 22 in).
-SEAT_SLAT_DEPTH = to_mm(4.2 * INCH)
+SEAT_SLAT_DEPTH = to_mm(4 * INCH)  # Y depth of each seat slat
 SEAT_SLAT_GAP = to_mm(0.5 * INCH)  # gap between adjacent seat slats
 SEAT_SLOPE_DEG = 5.0  # downward slope towards the rear of the seat
 SEAT_SLAT_FRONT_Y = to_mm(6 * INCH)  # Y centre of the forward-most seat slat
